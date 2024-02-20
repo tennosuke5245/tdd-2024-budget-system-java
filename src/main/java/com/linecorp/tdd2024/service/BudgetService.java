@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -42,26 +43,17 @@ public class BudgetService {
 
         Map<YearMonth, Budget> inPeriodBudgets = getInPeriodBudgets(start, end);
 
-        YearMonth startYearMonth = start.toYearMonth();
-        YearMonth endYearMonth = end.toYearMonth();
+        double totalAmount = inPeriodBudgets.values()
+                .stream()
+                .map(Budget::getAmount)
+                .map(Integer::doubleValue)
+                .reduce(Double::sum)
+                .orElseGet(GET_ZERO);
 
-        if (!startYearMonth.equals(endYearMonth)) {
-            Budget firstBudget = inPeriodBudgets.getAndRemove(startYearMonth).orElseGet(GET_ZERO_BUDGET);
-            Budget lastBudget = inPeriodBudgets.getAndRemove(endYearMonth).orElseGet(GET_ZERO_BUDGET);
-            double totalAmount = inPeriodBudgets.values()
-                                    .stream()
-                                    .map(Budget::getAmount)
-                                    .map(Integer::doubleValue)
-                                    .reduce(Double::sum)
-                                    .orElseGet(GET_ZERO);
+        totalAmount -= calculateFirstBudgetUncoveredAmount(inPeriodBudgets, start);
+        totalAmount -= calculateLastBudgetUncoveredAmount(inPeriodBudgets, end);
 
-            totalAmount += calculateFirstBudgetAmount(start, firstBudget) + calculateLastBudgetAmount(end, lastBudget);
-
-            return totalAmount;
-        }
-
-        Budget budget = inPeriodBudgets.getAndRemove(startYearMonth).orElseGet(GET_ZERO_BUDGET);
-        return end.betweenDays(start) * budget.getAmountPerDay();
+        return totalAmount;
     }
 
     private Map<YearMonth, Budget> getInPeriodBudgets(LocalDate start, LocalDate end) {
@@ -81,12 +73,18 @@ public class BudgetService {
                         end.lastDayOfMonth());
     }
 
-    private double calculateFirstBudgetAmount(LocalDate start, Budget budget) {
-        return start.lastDayOfMonth().betweenDays(start) * budget.getAmountPerDay();
+    private double calculateFirstBudgetUncoveredAmount(Map<YearMonth, Budget> budgetMap, LocalDate start) {
+        return (start.firstDayOfMonth().betweenDays(start) - 1) *
+                getBudgetOrDefaultZeroBudget(budgetMap, start.toYearMonth()).getAmountPerDay();
     }
 
-    private double calculateLastBudgetAmount(LocalDate end, Budget budget) {
-        return end.betweenDays(end.firstDayOfMonth()) * budget.getAmountPerDay();
+    private double calculateLastBudgetUncoveredAmount(Map<YearMonth, Budget> budgetMap, LocalDate end) {
+        return (end.lastDayOfMonth().betweenDays(end) - 1) *
+                getBudgetOrDefaultZeroBudget(budgetMap, end.toYearMonth()).getAmountPerDay();
+    }
+
+    private Budget getBudgetOrDefaultZeroBudget(Map<YearMonth, Budget> budgetMap, YearMonth key) {
+        return Optional.ofNullable(budgetMap.get(key)).orElseGet(GET_ZERO_BUDGET);
     }
 
 }
